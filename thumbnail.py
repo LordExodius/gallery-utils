@@ -2,6 +2,7 @@
 
 import argparse
 import pathlib
+import time
 import pyvips as pv
 import multiprocessing as mp
 
@@ -39,24 +40,27 @@ def main():
             )]
     print(f"found {len(thumbnailGenerationData)} files")
 
-    # Generate thumbnail directory if it does not already exist
     print(f"generating thumbnails...")
     thumbDir.mkdir(parents=True, exist_ok=True)
+    startTime = time.time()
     generate_thumbnails(thumbnailGenerationData)
-    print("complete")
+    endTime = time.time()
+    print(f"\ncompleted in {endTime - startTime} seconds")
 
-def generate_thumbnails(thumbnailGenerationData: list[tuple[pathlib.Path, pathlib.Path]]) -> None:
+def generate_thumbnails(thumbnailGenerationData: list[tuple[pathlib.Path, pathlib.Path, int, int]]) -> None:
     numProcesses = mp.cpu_count()
     with mp.Pool(numProcesses) as pool:
         mp.freeze_support()
-        pool.starmap(generate_thumbnail, thumbnailGenerationData)
-
-def generate_thumbnail(sourcePath, targetPath, width, quality) -> None:
+        numImages = len(thumbnailGenerationData)
+        counter = 0
+        for _ in pool.imap_unordered(generate_thumbnail, thumbnailGenerationData):
+            counter += 1
+            print(f"processed {counter}/{numImages} images", end="\r")
+        
+def generate_thumbnail(thumbGenData: tuple[pathlib.Path, pathlib.Path, int, int]) -> None:
+    sourcePath, targetPath, width, quality = thumbGenData
     thumb: pv.Image = pv.Image.thumbnail(sourcePath, width)
     pv.Image.heifsave(thumb, targetPath, Q=quality)
-
-def generate_manifest(sourceDir, sourceFiles):
-    pass
 
 if __name__ == "__main__":
     main()
