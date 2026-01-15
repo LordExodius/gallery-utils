@@ -12,10 +12,12 @@ def main():
     parser.add_argument("source", help="Source directory or filename")
     parser.add_argument("-w", "--width", type=int, help="Width of thumbnail to generate (default: 1000px)")
     parser.add_argument("-q", "--quality", type=int, help="Quality setting for thumbnail output (default: 75)")
+    parser.add_argument("-e", "--effort", type=int, help="CPU effort spent improving compression (0: fastest, 9: slowest, 4: default)")
     args = parser.parse_args()
 
     thumbWidth = 1000 if not args.width else int(args.width)
     thumbQuality = 75 if not args.quality else int(args.quality)
+    thumbEffort = 4 if not args.effort else max(0, min(9, int(args.effort)))
 
     sourcePath = pathlib.Path(args.source)
 
@@ -27,7 +29,8 @@ def main():
             filePath, 
             thumbDir / ".".join((filePath.name.rsplit(".")[0] + "-thumb", "avif")),
             thumbWidth,
-            thumbQuality
+            thumbQuality,
+            thumbEffort
             ) for filePath in sourceDir.iterdir() if filePath.is_file()]
     else:
         sourceDir = sourcePath.parent
@@ -36,7 +39,8 @@ def main():
             sourcePath, 
             thumbDir / ".".join((sourcePath.name.rsplit(".")[0] + "-thumb", "avif")),
             thumbWidth,
-            thumbQuality
+            thumbQuality,
+            thumbEffort
             )]
     print(f"found {len(thumbnailGenerationData)} files")
 
@@ -47,7 +51,7 @@ def main():
     endTime = time.time()
     print(f"\ncompleted in {endTime - startTime} seconds")
 
-def generate_thumbnails(thumbnailGenerationData: list[tuple[pathlib.Path, pathlib.Path, int, int]]) -> None:
+def generate_thumbnails(thumbnailGenerationData: list[tuple[pathlib.Path, pathlib.Path, int, int, int]]) -> None:
     numProcesses = mp.cpu_count()
     with mp.Pool(numProcesses) as pool:
         mp.freeze_support()
@@ -57,10 +61,10 @@ def generate_thumbnails(thumbnailGenerationData: list[tuple[pathlib.Path, pathli
             counter += 1
             print(f"processed {counter}/{numImages} images", end="\r")
         
-def generate_thumbnail(thumbGenData: tuple[pathlib.Path, pathlib.Path, int, int]) -> None:
-    sourcePath, targetPath, width, quality = thumbGenData
+def generate_thumbnail(thumbGenData: tuple[pathlib.Path, pathlib.Path, int, int, int]) -> None:
+    sourcePath, targetPath, width, quality, effort = thumbGenData
     thumb: pv.Image = pv.Image.thumbnail(sourcePath, width)
-    pv.Image.heifsave(thumb, targetPath, Q=quality)
+    pv.Image.heifsave(thumb, targetPath, Q=quality, compression="av1", effort=effort)
 
 if __name__ == "__main__":
     main()
