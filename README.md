@@ -4,8 +4,6 @@ A collection of utilities for managing and displaying image galleries. Used for 
 
 ## tools
 - `thumbnail.py`: A script to generate thumbnails for images in a specified directory.
-- `manifest.py`: A script to create a manifest file for images, thumbnails, and metadata.
-- `gallery.py`: A script to create HTML galleries from a manifest file.
 
 ## usage
 
