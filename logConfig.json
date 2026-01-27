@@ -29,7 +29,7 @@
             "level": "DEBUG",
             "formatter": "detailed",
             "filename": "gallery-utils.log",
-            "maxBytes": 100000,
+            "maxBytes": 1000000,
             "backupCount": 3
         },
         "queue_handler": {
