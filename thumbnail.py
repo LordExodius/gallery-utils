@@ -51,8 +51,7 @@ def main():
     parser.add_argument("-w", "--width", type=int, help="Width of thumbnail to generate (default: 1000px)")
     parser.add_argument("-q", "--quality", type=int, help="Compression factor for thumbnail output (default: 75)")
     parser.add_argument("-e", "--effort", type=int, help="CPU effort spent improving compression (0: fastest, 9: slowest, 4: default)")
-    parser.add_argument("-c", "--collection", type=str, help="Collection(s) to add photos to (use ; to delimit collections)")
-    parser.add_argument("-o", "--overwrite", action="store_true", help="Disable smart thumbnail generation and overwrite stored images")
+    parser.add_argument("-c", "--collections", type=str, help="Collection(s) to add photos to (use ; to delimit collections)")
     parser.add_argument("-oo", "--offlineOnly", action="store_true", help="Disable uploading and only generate thumbnails locally")
     parser.add_argument("-uo", "--uploadOnly", action="store_true", help="Skip thumbnail generation and only upload to D1 and R2")
     parser.add_argument("-t", "--test", action="store_true", help="For development testing")
@@ -64,7 +63,6 @@ def main():
     effort = DEFAULT_EFFORT if not args.effort else max(0, min(9, int(args.effort)))
     exportSettings = (width, quality, effort)
     sourcePath = Path(args.source)
-    overwrite = bool(args.overwrite)
 
     metadata = defaultdict(lambda: defaultdict(lambda: "NULL")) # Map source file to metadata with default value=NULL
 
@@ -78,22 +76,13 @@ def main():
         for filePath in sourceDir.iterdir():
             if filePath.is_file():
                 thumbPath = thumbDir / ".".join((filePath.name.rsplit(".")[0] + "-thumb", "avif"))
-                # Do not regenerate thumbnail unless overwrite flag is enabled
-                if overwrite or not thumbPath.exists():
-                    # Write image metadata to dict
-                    # with open(filePath, "rb") as imgFile:
-                    #     img = Image(imgFile)
-                    #     exif = img.get_all()
-                    #     for key in exif:
-                    #         print(f"{key}: {exif[key]}")
-                    pathData.append((filePath, thumbPath))
+                pathData.append((filePath, thumbPath))
     else:
         logger.info("Path provided is a FILE")
         sourceDir = sourcePath.parent
         thumbDir = sourceDir / "thumbnails"
         thumbPath = thumbDir / ".".join((sourcePath.name.rsplit(".")[0] + "-thumb", "avif"))
-        if overwrite or not thumbPath.exists():
-            pathData.append((sourcePath, thumbPath))
+        pathData.append((sourcePath, thumbPath))
 
     logger.info(f"Found {len(pathData)} files")
 
@@ -124,7 +113,7 @@ def main():
         push_to_r2(pathData)
 
         # Create linking for photos to collections (optional)
-        if args.collection:
+        if args.collections:
             pass
     else:
         logger.info("File uploads DISABLED")
@@ -133,6 +122,7 @@ def generate_thumbnails(thumbnailGenerationData: list[tuple[tuple[Path, Path], t
     """
     Multiprocess thumbnail generation.
     """
+    logger.info(f"Beginning thumbnail generation for {len(thumbnailGenerationData)} images")
     numProcesses = mp.cpu_count()
     with mp.Pool(numProcesses) as pool:
         mp.freeze_support()
@@ -149,6 +139,9 @@ def generate_thumbnail(thumbGenData: tuple[tuple[Path, Path], tuple[int, int, in
     pathData, exportSettings = thumbGenData
     sourcePath, targetPath = pathData
     width, quality, effort = exportSettings
+    if (targetPath.is_file()): 
+        logger.debug(f"Skipping thumbnail generation, {targetPath.name} already exists")
+        return
     thumb: pv.Image = pv.Image.thumbnail(sourcePath, width, size=pv.Size.DOWN)
     pv.Image.heifsave(thumb, targetPath, Q=quality, compression="av1", effort=effort)
 
@@ -165,13 +158,14 @@ def push_to_r2(pathData: tuple[Path, Path]) -> None:
             s3.upload_file(thumb, os.getenv("S3_BUCKET_NAME"), thumb.name)
         except ClientError as e:
             logger.error(e)
+    logger.info(f"Completed uploading {len(pathData)} images to R2.")
 
 @lru_cache
 def get_multi_insert_query(tableName: str, columns: tuple[str], rowCount: int) -> str:
     """
     Returns a multi-row insert SQL statement with `rowCount` rows
     """
-    logger.info(f"Generating {rowCount} row insert statement for table {tableName} with columns: {columns}")
+    logger.debug(f"Generating {rowCount} row insert statement for table {tableName} with columns: {columns}")
     insertStr = f"INSERT INTO {tableName} ({", ".join(columns)}) VALUES "
     paramStr = ", ".join(["?" for _ in range(len(columns))])
     paramStr = "".join(["(", paramStr, ")"])
@@ -212,8 +206,9 @@ def batch_d1(batchedQueries: list[dict[str: str, str: list[str]]]) -> None:
                     json={
                         "batch": batchedQueries
                     })
-        logger.info(f"HTTP {res.status_code}: {res.content.decode()}")
+        logger.debug(f"HTTP {res.status_code}: {res.content.decode()}")
         res.raise_for_status()
+        logger.info("Batch query successful.")
     except requests.exceptions.RequestException as e:
         logger.error(e)
 
@@ -255,7 +250,8 @@ def create_photo_table():
 def create_collection_table():
     queryString = """CREATE TABLE IF NOT EXISTS collection (
     id INTEGER NOT NULL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE);"""
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL);"""
     query_d1(queryString)
 
 def create_photo_collection_table():
